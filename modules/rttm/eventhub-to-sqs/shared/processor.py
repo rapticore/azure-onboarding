@@ -8,16 +8,10 @@ from botocore.config import Config
 
 logger = logging.getLogger(__name__)
 
-# QUEUE_URL = os.getenv("AWS_SQS_QUEUE_URL")  # required
-QUEUE_URL = 'https://sqs.us-west-2.amazonaws.com/422753814403/rapticore-azure-rttm-queue'
-
+QUEUE_URL = os.getenv("AWS_SQS_QUEUE_URL")  # required
 
 def create_sso_session(profile_name: str = None, region: str = None) -> boto3.Session:
-    """
-    Create a boto3 session that works in both:
-    - Local environment (via AWS SSO or default credentials)
-    - Azure (using OIDC Web Identity)
-    """
+
     region = region or os.getenv("AWS_REGION", "us-east-1")
     profile = profile_name or os.getenv("AWS_PROFILE", "default")
 
@@ -75,8 +69,6 @@ def create_sso_session(profile_name: str = None, region: str = None) -> boto3.Se
 
 
 def handle_signin_log(event_str: str):
-    # print("DEBUG - AWS_ACCESS_KEY_ID:", os.getenv("AWS_ACCESS_KEY_ID"))
-    # print("DEBUG - AWS_SECRET_ACCESS_KEY:", os.getenv("AWS_SECRET_ACCESS_KEY")[:4] + "...")
 
     try:
         session = create_sso_session('dev1', 'us-west-2')
