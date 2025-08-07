@@ -1,0 +1,34 @@
+identity_name                     = "rapticore-access-prod-uami"
+location                          = "eastus"
+resource_group_name               = ""
+role_scope                        = "/subscriptions/00000000-0000-0000-0000-000000000000"
+
+federated_credential_name         = "rapticore-oidc"
+federated_credential_subject      = ""
+federated_credential_audience     = "api://AzureADTokenExchange"
+federated_credential_issuer       = ""
+
+assign_builtin_roles = [
+  {
+    role_name = "Reader"
+    scope     = "/subscriptions/00000000-0000-0000-0000-000000000000"
+  }
+]
+
+custom_permissions = [
+  "Microsoft.Storage/storageAccounts/read",
+  "Microsoft.Storage/storageAccounts/write",
+  "Microsoft.Storage/storageAccounts/blobServices/read",
+  "Microsoft.Storage/storageAccounts/blobServices/write",
+  "Microsoft.Storage/storageAccounts/listKeys/action",
+  "Microsoft.Storage/storageAccounts/regenerateKey/action",
+  "Microsoft.Network/networkSecurityGroups/read",
+  "Microsoft.Network/networkSecurityGroups/write",
+  "Microsoft.Web/sites/config/list/action",
+  "Microsoft.Web/sites/write",
+  "Microsoft.Web/sites/config/write",
+  "Microsoft.Web/sites/config/read",
+  "Microsoft.Web/sites/functions/listkeys/action",
+  "Microsoft.Web/sites/functions/read",
+  "Microsoft.Web/sites/syncfunctiontriggers/action"
+]

@@ -1,0 +1,13 @@
+{
+  "scriptFile": "__init__.py",
+  "bindings": [
+    {
+      "name": "event",
+      "type": "eventHubTrigger",
+      "direction": "in",
+      "eventHubName": "insights-logs-noninteractiveusersigninlogs",
+      "connection": "EventHubConnectionAppSetting",
+      "consumerGroup": "$Default"
+    }
+  ]
+}
