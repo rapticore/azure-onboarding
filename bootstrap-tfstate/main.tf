@@ -11,14 +11,26 @@ variable "location" {
 }
 
 variable "resource_group_name" {
+  type        = string
+  description = "Name of the existing resource group"
 }
 
 variable "storage_account_name" {
-  default = "rapticorerttmtfstate" # must be globally unique
+  type        = string
+  description = "Name of the storage account used for Terraform state"
+  validation {
+    condition     = length(var.storage_account_name) == 24 && can(regex("^[a-z0-9]+$", var.storage_account_name))
+    error_message = "Storage account name must be exactly 24 characters long and contain only lowercase letters and numbers."
+  }
 }
 
 variable "container_name" {
-  default = "rapticorerttmtfstatecontainer"
+  type        = string
+  description = "Name of the container used for Terraform state"
+  validation {
+    condition     = can(regex("^[a-z0-9]+$", var.container_name)) && length(var.container_name) <= 63
+    error_message = "Container name must contain only lowercase letters and numbers, and be at most 63 characters long."
+  }
 }
 
 variable "subscription_id" {
