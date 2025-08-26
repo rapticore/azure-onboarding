@@ -32,3 +32,8 @@ custom_permissions = [
   "Microsoft.Web/sites/functions/read",
   "Microsoft.Web/sites/syncfunctiontriggers/action"
 ]
+
+aws_sqs_queue_url   = "https://sqs.us-west-2.amazonaws.com/123456789012/my-queue"
+aws_oidc_audience   = "api://{AZURE_TENANT_ID}"
+aws_role_arn        = "arn:aws:iam::123456789012:role/my-aws-role"
+aws_region          = "us-west-2"

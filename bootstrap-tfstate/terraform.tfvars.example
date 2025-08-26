@@ -1,5 +1,5 @@
 location                          = "eastus"
-resource_group_name               = ""
-storage_account_name              = "" # must be globally unique
-container_name                    = ""
+resource_group_name               = "rapticore-rttm-rg-WUS2"
+storage_account_name              = "rapticorerttmtfstate" # must be globally unique
+container_name                    = "rapticorerttmtfstatecontainer"
 subscription_id                   = "00000000-0000-0000-0000-000000000000" 

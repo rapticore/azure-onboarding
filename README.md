@@ -2,21 +2,6 @@
 
 This project provides Terraform/OpenTofu modules for deploying Azure infrastructure components including RTTM (Real-Time Threat Monitoring) and Managed Identity resources.
 
-## Project Structure
-
-```
-├── modules/
-│   ├── rttm/                    # Real-Time Threat Monitoring module
-│   └── managed-identity/        # Azure Managed Identity module
-├── deployment/                  # Main deployment configuration
-│   ├── main.tf                 # Root module configuration
-│   ├── variables.tf            # Variable definitions
-│   └── tfvars.example          # Example variable values
-├── bootstrap-tfstate/          # Azure Storage backend setup
-│   └── main.tf                # Storage account and container setup
-└── .gitignore                 # Git ignore patterns
-```
-
 ## Prerequisites
 
 - [OpenTofu](https://opentofu.org/docs/intro/install/) >= 1.6.0
@@ -64,12 +49,24 @@ terraform {
     storage_account_name = "your-storage-account-name"
     container_name       = "tfstate"
     key                  = "infrastructure.tfstate"
-    use_msi              = true  # or use access_key/sas_token
+    resource_group_name  = "rg-name"
   }
 }
 ```
 
 ### Step 4: Configure Variables
+
+First create local build of Function App
+This build will then be packaged by Terraform in zip file to deploy Function App by Zip Deploy method.
+You need to have Python minimum 3.12 for this
+
+```bash
+cd modules/rttm/function-app
+
+pip install -r requirements.txt --target="./.python_packages/lib/site-packages"
+```
+
+Then
 
 Copy the example variables file and customize it for your environment:
 
@@ -94,8 +91,8 @@ Initialize and deploy the infrastructure:
 ```bash
 cd deployment
 tofu init
-tofu plan -var-file="terraform.tfvars"
-tofu apply -var-file="terraform.tfvars"
+tofu plan
+tofu apply
 ```
 
 ## Module Documentation

@@ -1,21 +1,17 @@
 data "azurerm_client_config" "current" {}
 
-terraform {
-  required_providers {
-    azurerm = {
-      source  = "hashicorp/azurerm"
-      version = "~> 3.95"
-    }
-    archive = {
-      source  = "hashicorp/archive"
-      version = "~> 2.4"
-    }
+data "azurerm_subscription" "current" {}
+
+data "terraform_remote_state" "uami" {
+  backend = "azurerm"
+  config = {
+    resource_group_name  = var.resource_group_name
+    storage_account_name = "rapticoretfstate"
+    container_name       = "rapticoretfstatecontainer"
+    key                  = "onboarding.terraform.tfstate"
   }
 }
 
-provider "azurerm" {
-  features {}
-}
 
 resource "azurerm_storage_account" "function_storage" {
   name                     = "funcstorrapticorerttm${substr(uuid(), 0, 2)}"
@@ -30,11 +26,20 @@ resource "azurerm_storage_account" "function_storage" {
   }
 }
 
+resource "azurerm_log_analytics_workspace" "law" {
+  name                = "rapticore-function-insights-law"
+  location            = var.location
+  resource_group_name = var.resource_group_name
+  sku                 = "PerGB2018"
+  retention_in_days   = 30
+}
+
 resource "azurerm_application_insights" "function_insights" {
   name                = "appi-rapticore-function"
   location            = var.location
   resource_group_name = var.resource_group_name
   application_type    = "web"
+  workspace_id        = azurerm_log_analytics_workspace.law.id
   
   tags = {
     Environment = "Production"
@@ -45,9 +50,9 @@ resource "azurerm_application_insights" "function_insights" {
 resource "azurerm_service_plan" "function_plan" {
   name                = "plan-rapticore-functions"
   resource_group_name = var.resource_group_name
-  location            = var.location
+  location            = var.location # Use variable instead of hardcoded
   os_type             = "Linux"
-  sku_name            = "FC1"  # Consumption plan
+  sku_name            = "Y1"  
   
   tags = {
     Environment = "Production"
@@ -55,10 +60,11 @@ resource "azurerm_service_plan" "function_plan" {
   }
 }
 
+# Create zip file for deployment
 data "archive_file" "function_code" {
   type        = "zip"
-  source_dir  = "${path.module}/eventhub-to-sqs"
-  output_path = "${path.module}/eventhub-to-sqs.zip"
+  source_dir  = "${path.module}/function-app"
+  output_path = "${path.module}/function-code.zip"
 }
 
 resource "azurerm_linux_function_app" "entra_processor" {
@@ -72,9 +78,13 @@ resource "azurerm_linux_function_app" "entra_processor" {
 
   site_config {
     application_stack {
-      python_version = "3.11"  # or "3.8", "3.10", "3.11" based on your function code
+      python_version = "3.12"  
     }
-    
+  }
+
+  identity {
+    type         = "UserAssigned"
+    identity_ids = [var.msi_full_resource_id]
   }
 
   app_settings = {
@@ -82,17 +92,41 @@ resource "azurerm_linux_function_app" "entra_processor" {
     "FUNCTIONS_WORKER_RUNTIME"          = "python"
     "APPINSIGHTS_INSTRUMENTATIONKEY"    = azurerm_application_insights.function_insights.instrumentation_key
     "APPLICATIONINSIGHTS_CONNECTION_STRING" = azurerm_application_insights.function_insights.connection_string
-    
+
     # Event Hub connection settings
     "EventHubConnectionString" = azurerm_eventhub_namespace_authorization_rule.entra_diag.primary_connection_string
-    "EventHubName"            = azurerm_eventhub.entra_diag.name
-    
-    # Additional settings for your function
-    "AzureWebJobsStorage"     = azurerm_storage_account.function_storage.primary_connection_string
+    "EventHubName"             = azurerm_eventhub.entra_diag.name
+
+    # Azure Storage
+    "AzureWebJobsStorage" = azurerm_storage_account.function_storage.primary_connection_string
     "WEBSITE_CONTENTAZUREFILECONNECTIONSTRING" = azurerm_storage_account.function_storage.primary_connection_string
-    "WEBSITE_CONTENTSHARE"    = "func-rapticore-entra-processor"
+    "WEBSITE_CONTENTSHARE" = "func-rapticore-entra-processor"
+
+    # AWS OIDC configuration (user inputs)
+    "AWS_OIDC_AUDIENCE"         = var.aws_oidc_audience
+    "AWS_ROLE_ARN"              = var.aws_role_arn
+    "AWS_SQS_QUEUE_URL"         = var.aws_sqs_queue_url
+    "AWS_REGION"                = var.aws_region
+
+    # Tell the function to look for that setting
+    "EVENT_HUB_NAME"            = azurerm_eventhub.entra_diag.name
+    "EVENT_HUB_CONSUMER_GROUP"  = azurerm_eventhub_consumer_group.function_consumer.name
+
+    # Enable build during deployment (CRITICAL for Python dependencies)
+    "SCM_DO_BUILD_DURING_DEPLOYMENT"  = "true"
+    "ENABLE_ORYX_BUILD"               = "true"
+
+    # Optional MSI Client ID
+    "MSI_CLIENT_ID" = var.msi_client_id
+
+    # REMOVE these WEBSITE_RUN_FROM_PACKAGE settings for direct deployment
+    # "WEBSITE_RUN_FROM_PACKAGE" = "https://${azurerm_storage_account.function_storage.name}.blob.core.windows.net/${azurerm_storage_container.function_code_container.name}/${azurerm_storage_blob.function_code.name}"
+    # "WEBSITE_RUN_FROM_PACKAGE_BLOB_MI_RESOURCE_ID" = var.msi_full_resource_id
+    "WEBSITE_RUN_FROM_PACKAGE" = "1"
   }
 
+  # Use zip_deploy for direct deployment
+  zip_deploy_file = data.archive_file.function_code.output_path
 
   tags = {
     Environment = "Production"
@@ -105,6 +139,7 @@ resource "azurerm_linux_function_app" "entra_processor" {
     azurerm_application_insights.function_insights
   ]
 }
+
 
 resource "azurerm_storage_container" "function_code_container" {
   name                  = "function-code"
@@ -140,8 +175,8 @@ resource "azurerm_eventhub" "entra_diag" {
   name                = "rapticore-entra-diag-logs"
   namespace_name      = azurerm_eventhub_namespace.entra_diag.name
   resource_group_name = var.resource_group_name
-  partition_count     = 2
-  message_retention   = 7
+  partition_count     = 4
+  message_retention   = 1
 }
 
 # Event Hub Authorization Rule
@@ -213,6 +248,20 @@ resource "azurerm_monitor_aad_diagnostic_setting" "entra_diag_logs" {
   depends_on = [azurerm_eventhub_namespace.entra_diag]
 }
 
+# Activity Log Diagnostic Settings for NSG Flow Logs
+resource "azurerm_monitor_diagnostic_setting" "activity_log_nsg" {
+  name                           = "rapticore-activity-log-nsg-to-eh"
+  target_resource_id             = data.azurerm_subscription.current.id
+  eventhub_authorization_rule_id = azurerm_eventhub_namespace_authorization_rule.entra_diag.id
+  eventhub_name                  = azurerm_eventhub.entra_diag.name
+
+  enabled_log {
+    category = "Administrative"
+  }
+
+  depends_on = [azurerm_eventhub_namespace.entra_diag]
+}
+
 # Output values for reference
 output "function_app_name" {
   value = azurerm_linux_function_app.entra_processor.name
@@ -228,4 +277,9 @@ output "eventhub_connection_string" {
 output "function_app_url" {
   value = "https://${azurerm_linux_function_app.entra_processor.default_hostname}"
   description = "Function App URL"
+}
+
+output "activity_log_diagnostic_setting_id" {
+  value       = azurerm_monitor_diagnostic_setting.activity_log_nsg.id
+  description = "Activity Log diagnostic setting ID"
 }
