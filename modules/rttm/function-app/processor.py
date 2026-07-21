@@ -131,7 +131,7 @@ def create_sso_session(profile_name: str = None, region: str = None) -> boto3.Se
 def handle_signin_log(event_str: str):
 
     try:
-        session = create_sso_session('dev1', 'us-west-2')
+        session = create_sso_session(region=os.getenv("AWS_REGION", "us-west-2"))
 
         # # Configure boto3 client with retries and timeouts
         config = Config(

@@ -37,3 +37,24 @@ aws_sqs_queue_url   = "https://sqs.us-west-2.amazonaws.com/123456789012/my-queue
 aws_oidc_audience   = "api://{AZURE_TENANT_ID}"
 aws_role_arn        = "arn:aws:iam::123456789012:role/my-aws-role"
 aws_region          = "us-west-2"
+
+# ----------------------------------------------------------------------------------
+# OPTIONAL: Entra ID Protection risk logs (RiskyUsers, UserRiskEvents)
+# Requires an Entra ID P2 license. Leave false (or omit) on non-P2 tenants.
+# ----------------------------------------------------------------------------------
+# enable_entra_id_protection_logs = false
+
+# ----------------------------------------------------------------------------------
+# OPTIONAL: Remediation WRITE identity  (DEFAULT OFF -- read-only unless enabled)
+# Provisions a SEPARATE managed identity that Rapticore uses ONLY for automated
+# remediation writes. Leave enable_remediation_write = false for read-only posture.
+# When you set it true you MUST also set the three federated-credential values below;
+# Rapticore supplies the issuer and subject (same as the scanner). Keep the audience
+# identical to the scanner's federated_credential_audience.
+# ----------------------------------------------------------------------------------
+# enable_remediation_write                  = false
+# remediation_role_scope                    = ""   # empty reuses role_scope (subscription); set an RG id to scope tighter
+# remediation_federated_credential_name     = "rapticore-remediation-write-oidc"
+# remediation_federated_credential_issuer   = ""   # provided by Rapticore
+# remediation_federated_credential_subject  = ""   # provided by Rapticore -- MUST differ from the scanner subject
+# remediation_federated_credential_audience = "api://AzureADTokenExchange"

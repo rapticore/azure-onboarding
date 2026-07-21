@@ -32,24 +32,45 @@ resource "azurerm_role_definition" "rapticore_custom" {
 }
 
 resource "azurerm_role_assignment" "rapticore_assignment" {
-  principal_id         = azurerm_user_assigned_identity.rapticore.principal_id
-  role_definition_id   = azurerm_role_definition.rapticore_custom.role_definition_resource_id
-  scope                = var.role_scope
+  principal_id       = azurerm_user_assigned_identity.rapticore.principal_id
+  role_definition_id = azurerm_role_definition.rapticore_custom.role_definition_resource_id
+  scope              = var.role_scope
 }
 
 resource "azurerm_federated_identity_credential" "rapticore_oidc" {
-  name                        = var.federated_credential_name
-  resource_group_name         = var.resource_group_name
-  audience                    = [var.federated_credential_audience]
-  issuer                      = var.federated_credential_issuer
-  subject                     = var.federated_credential_subject
-  parent_id                   = azurerm_user_assigned_identity.rapticore.id
+  name                = var.federated_credential_name
+  resource_group_name = var.resource_group_name
+  audience            = [var.federated_credential_audience]
+  issuer              = var.federated_credential_issuer
+  subject             = var.federated_credential_subject
+  parent_id           = azurerm_user_assigned_identity.rapticore.id
 }
+
+# --- Microsoft Graph directory-read permissions for the scanning identity -------
+# Grants Rapticore read access to the Entra directory (users, groups, group
+# memberships, directory roles / PIM). Assigning a Graph app role to the identity
+# IS the admin consent, so applying THIS block requires an Entra admin role
+# (Global Administrator or Privileged Role Administrator) — the ARM resources
+# above only need subscription Owner. Without these app roles Rapticore can
+# enumerate resources but not directory membership, so identity and
+# inherited-permission analysis would be incomplete.
+data "azuread_service_principal" "msgraph" {
+  # azuread ~> 2.0 uses `application_id`; on the azuread 3.x provider rename to `client_id`.
+  application_id = "00000003-0000-0000-c000-000000000000" # Microsoft Graph (well-known app id)
+}
+
+resource "azuread_app_role_assignment" "graph_read" {
+  for_each            = toset(var.graph_app_roles)
+  app_role_id         = data.azuread_service_principal.msgraph.app_role_ids[each.value]
+  principal_object_id = azurerm_user_assigned_identity.rapticore.principal_id
+  resource_object_id  = data.azuread_service_principal.msgraph.object_id
+}
+
 resource "azuread_application" "rapticore_app" {
   display_name = "azure_aws_assume_role"
 
   identifier_uris = [
-    "api://${data.azurerm_client_config.current.tenant_id}" 
+    "api://${data.azurerm_client_config.current.tenant_id}"
   ]
 
   # Define custom App Role
@@ -70,7 +91,7 @@ resource "azuread_service_principal" "rapticore_sp" {
 resource "azuread_app_role_assignment" "rapticore_assignment" {
   principal_object_id = azurerm_user_assigned_identity.rapticore.principal_id
   resource_object_id  = azuread_service_principal.rapticore_sp.id
-  app_role_id = tolist(azuread_application.rapticore_app.app_role)[0].id
+  app_role_id         = tolist(azuread_application.rapticore_app.app_role)[0].id
 }
 
 

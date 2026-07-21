@@ -23,6 +23,20 @@ variable "custom_permissions" {
   description = "List of permissions for the custom role"
 }
 
+# Microsoft Graph APPLICATION permissions (app roles) granted to the scanning
+# identity so Rapticore can read the Entra directory — users, groups, group
+# memberships, and directory roles / PIM. This is the input for the identity and
+# inherited-admin analysis; without it the scanner sees resources but not who is
+# in which group. Required baseline for every client onboarding.
+variable "graph_app_roles" {
+  type = list(string)
+  default = [
+    "Directory.Read.All",
+    "GroupMember.Read.All",
+    "RoleManagement.Read.Directory",
+  ]
+}
+
 # Federated Identity Credential Inputs
 variable "federated_credential_name" {
   type        = string

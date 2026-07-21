@@ -5,8 +5,8 @@ provider "azurerm" {
 }
 
 variable "location" {
-  default = "eastus"
-  type = string
+  default     = "eastus"
+  type        = string
   description = "Azure region to deploy resources"
 }
 
@@ -38,7 +38,7 @@ resource "azurerm_storage_account" "tfstate" {
   account_tier             = "Standard"
   account_replication_type = "LRS"
 
-  min_tls_version          = "TLS1_2"
+  min_tls_version = "TLS1_2"
 }
 
 resource "azurerm_storage_container" "tfstate" {

@@ -1,5 +1,5 @@
-location                          = "eastus"
-resource_group_name               = "rapticore-rttm-rg-WUS2"
-storage_account_name              = "rapticorerttmtfstate" # must be globally unique
-container_name                    = "rapticorerttmtfstatecontainer"
-subscription_id                   = "00000000-0000-0000-0000-000000000000" 
+location             = "eastus"
+resource_group_name  = "rg-rapticore-onboarding"    # an existing resource group you own
+storage_account_name = "tfstatestorageexample01"    # globally unique, 3-24 lowercase alphanumeric
+container_name       = "tfstate"
+subscription_id      = "00000000-0000-0000-0000-000000000000"

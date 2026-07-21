@@ -84,3 +84,72 @@ variable "msi_full_resource_id" {
   type        = string
   default     = null
 }
+
+# --- RTTM: Entra ID Protection risk logs (opt-in, needs Entra ID P2) ----------------
+variable "enable_entra_id_protection_logs" {
+  description = <<-EOT
+    Opt-in (default false) for the RiskyUsers and UserRiskEvents Entra diagnostic
+    categories. Requires an Entra ID P2 license; leave false on non-P2 tenants so the
+    apply still succeeds. All other Entra and Activity Log categories are always on.
+  EOT
+  type        = bool
+  default     = false
+}
+
+# --- Remediation WRITE identity (opt-in, default off) -------------------------------
+variable "enable_remediation_write" {
+  description = <<-EOT
+    Master opt-in switch (default false) for the dedicated remediation WRITE identity.
+    When false, no write identity, role or credential is created and Rapticore keeps
+    read-only posture. Set true ONLY to allow automated ARM writes (guardrails /
+    one-click / reactive remediation). See the README "Remediation write access".
+  EOT
+  type        = bool
+  default     = false
+}
+
+variable "remediation_role_scope" {
+  description = <<-EOT
+    Optional ARM scope for the remediation write role. Leave empty ("") to reuse
+    role_scope (the scanner scope, usually the subscription). Set to a single resource
+    group to give the write identity a smaller blast radius than the read identity.
+  EOT
+  type        = string
+  default     = ""
+}
+
+variable "remediation_identity_name" {
+  description = "Name of the remediation write user-assigned managed identity."
+  type        = string
+  default     = "rapticore-remediation-write-uami"
+}
+
+variable "remediation_custom_role_name" {
+  description = "Name of the least-privilege custom role for remediation writes (kept distinct from the scanner role)."
+  type        = string
+  default     = "RapticoreRemediationWriteRole"
+}
+
+variable "remediation_federated_credential_name" {
+  description = "Federated credential name on the write identity. Rapticore provides this. Required when enable_remediation_write = true."
+  type        = string
+  default     = ""
+}
+
+variable "remediation_federated_credential_issuer" {
+  description = "OIDC issuer for the write identity (same convention as the scanner's federated_credential_issuer). Rapticore provides this. Required when enable_remediation_write = true."
+  type        = string
+  default     = ""
+}
+
+variable "remediation_federated_credential_subject" {
+  description = "OIDC subject for the write identity. MUST differ from the scanner subject. Rapticore provides this. Required when enable_remediation_write = true."
+  type        = string
+  default     = ""
+}
+
+variable "remediation_federated_credential_audience" {
+  description = "OIDC audience for the write identity. Defaults to api://AzureADTokenExchange; keep identical to the scanner's federated_credential_audience."
+  type        = string
+  default     = "api://AzureADTokenExchange"
+}
