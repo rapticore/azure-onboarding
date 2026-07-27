@@ -35,6 +35,9 @@ module "managed_identity" {
   federated_credential_audience = var.federated_credential_audience
   federated_credential_issuer   = var.federated_credential_issuer
 
+  # Extra Rapticore tenants federating to this same identity (see variables.tf).
+  additional_federated_credentials = var.additional_federated_credentials
+
   assign_builtin_roles = var.assign_builtin_roles
   custom_permissions   = var.custom_permissions
 }
@@ -47,6 +50,10 @@ module "eventhub" {
   resource_group_name = var.resource_group_name
 
   enable_entra_id_protection_logs = var.enable_entra_id_protection_logs
+
+  # Set when this Azure tenant already has an RTTM deployment forwarding to a
+  # different Rapticore tenant (see variables.tf).
+  deployment_suffix = var.rttm_deployment_suffix
 
   aws_sqs_queue_url    = var.aws_sqs_queue_url
   aws_oidc_audience    = var.aws_oidc_audience

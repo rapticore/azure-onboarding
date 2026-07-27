@@ -8,6 +8,21 @@ federated_credential_subject      = ""
 federated_credential_audience     = "api://AzureADTokenExchange"
 federated_credential_issuer       = ""
 
+# ----------------------------------------------------------------------------------
+# OPTIONAL: onboard this SAME Azure tenant to additional Rapticore tenants.
+# Each Rapticore tenant has its own Cognito identity pool, so it has its own
+# `subject` (Rapticore gives you the value). They all federate to the ONE managed
+# identity above — no extra Azure resources, no second scanner to pay for. Azure
+# allows up to 20 federated credentials per identity. `audience`/`issuer` may be
+# omitted; they default to the primary credential's values.
+# ----------------------------------------------------------------------------------
+# additional_federated_credentials = [
+#   {
+#     name    = "rapticore-oidc-staging"
+#     subject = ""   # provided by Rapticore for that tenant
+#   },
+# ]
+
 assign_builtin_roles = [
   {
     role_name = "Reader"
@@ -37,6 +52,21 @@ aws_sqs_queue_url   = "https://sqs.us-west-2.amazonaws.com/123456789012/my-queue
 aws_oidc_audience   = "api://{AZURE_TENANT_ID}"
 aws_role_arn        = "arn:aws:iam::123456789012:role/my-aws-role"
 aws_region          = "us-west-2"
+
+# ----------------------------------------------------------------------------------
+# OPTIONAL: a SECOND RTTM forwarder in this same Azure tenant.
+# Only needed when this Azure tenant must forward real-time threat events to more
+# than one Rapticore tenant AT THE SAME TIME. The Function App and Event Hub
+# namespace names are globally unique and the Entra diagnostic setting is unique
+# per Azure tenant, so the second deployment collides without a suffix. Also give
+# it its own resource_group_name and its own Terraform state key.
+#
+# Cheaper alternative: if you only need to MOVE RTTM to a different Rapticore
+# tenant, just change aws_sqs_queue_url / aws_role_arn above instead — a second
+# forwarder duplicates the Event Hub, Function App, storage and Log Analytics,
+# and streams the same Entra logs twice.
+# ----------------------------------------------------------------------------------
+# rttm_deployment_suffix = "staging"
 
 # ----------------------------------------------------------------------------------
 # OPTIONAL: Entra ID Protection risk logs (RiskyUsers, UserRiskEvents)

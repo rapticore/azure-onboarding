@@ -17,11 +17,22 @@ data "azurerm_subscription" "current" {}
 # storage account name safe across customers. The previous 2-char suffix allowed only
 # 256 distinct names for all Rapticore customers combined.
 locals {
+  # Optional per-deployment name suffix. Empty by default, so every existing
+  # deployment keeps byte-identical resource names and sees NO state churn.
+  #
+  # Set it when ONE Azure tenant forwards RTTM to more than one Rapticore tenant
+  # (e.g. a staging tenant alongside production): every name below is either
+  # globally unique (function app, Event Hub namespace), tenant-unique (the
+  # Entra diagnostic setting) or resource-group unique, so a second deployment
+  # collides without it. Pair it with a separate resource group.
+  rttm_suffix = var.deployment_suffix == "" ? "" : "-${var.deployment_suffix}"
+
   rttm_name_seed = sha256(
-    "rapticore-rttm-${data.azurerm_subscription.current.subscription_id}-${var.resource_group_name}"
+    "rapticore-rttm-${data.azurerm_subscription.current.subscription_id}-${var.resource_group_name}${local.rttm_suffix}"
   )
   # Storage account names: 3-24 chars, lowercase letters and digits only.
-  # "rapticorerttm" (13) + 11 hex chars = 24.
+  # "rapticorerttm" (13) + 11 hex chars = 24. The suffix is folded into the seed
+  # above rather than appended, to stay inside the 24-char limit.
   function_storage_name = coalesce(
     var.function_storage_account_name,
     "rapticorerttm${substr(local.rttm_name_seed, 0, 11)}",
@@ -42,7 +53,7 @@ resource "azurerm_storage_account" "function_storage" {
 }
 
 resource "azurerm_log_analytics_workspace" "law" {
-  name                = "rapticore-function-insights-law"
+  name                = "rapticore-function-insights-law${local.rttm_suffix}"
   location            = var.location
   resource_group_name = var.resource_group_name
   sku                 = "PerGB2018"
@@ -50,7 +61,7 @@ resource "azurerm_log_analytics_workspace" "law" {
 }
 
 resource "azurerm_application_insights" "function_insights" {
-  name                = "appi-rapticore-function"
+  name                = "appi-rapticore-function${local.rttm_suffix}"
   location            = var.location
   resource_group_name = var.resource_group_name
   application_type    = "web"
@@ -63,7 +74,7 @@ resource "azurerm_application_insights" "function_insights" {
 }
 
 resource "azurerm_service_plan" "function_plan" {
-  name                = "plan-rapticore-functions"
+  name                = "plan-rapticore-functions${local.rttm_suffix}"
   resource_group_name = var.resource_group_name
   location            = var.location # Use variable instead of hardcoded
   os_type             = "Linux"
@@ -83,7 +94,7 @@ data "archive_file" "function_code" {
 }
 
 resource "azurerm_linux_function_app" "entra_processor" {
-  name                = "func-rapticore-rttm-processor"
+  name                = "func-rapticore-rttm-processor${local.rttm_suffix}"
   resource_group_name = var.resource_group_name
   location            = var.location
 
@@ -178,7 +189,7 @@ resource "azurerm_storage_blob" "function_code" {
 
 # Event Hub Namespace
 resource "azurerm_eventhub_namespace" "entra_diag" {
-  name                = "eh-entra-rapticore-rttm"
+  name                = "eh-entra-rapticore-rttm${local.rttm_suffix}"
   location            = var.location
   resource_group_name = var.resource_group_name
   sku                 = "Standard"
@@ -231,7 +242,7 @@ resource "azurerm_eventhub_consumer_group" "function_consumer" {
 
 # Entra ID Diagnostic Settings
 resource "azurerm_monitor_aad_diagnostic_setting" "entra_diag_logs" {
-  name                           = "rapticore-entra-diag-to-eh"
+  name                           = "rapticore-entra-diag-to-eh${local.rttm_suffix}"
   eventhub_authorization_rule_id = azurerm_eventhub_namespace_authorization_rule.entra_diag.id
   eventhub_name                  = azurerm_eventhub.entra_diag.name
 
@@ -309,7 +320,7 @@ resource "azurerm_monitor_aad_diagnostic_setting" "entra_diag_logs" {
 
 # Activity Log Diagnostic Settings for NSG Flow Logs
 resource "azurerm_monitor_diagnostic_setting" "activity_log_nsg" {
-  name                           = "rapticore-activity-log-nsg-to-eh"
+  name                           = "rapticore-activity-log-nsg-to-eh${local.rttm_suffix}"
   target_resource_id             = data.azurerm_subscription.current.id
   eventhub_authorization_rule_id = azurerm_eventhub_namespace_authorization_rule.entra_diag.id
   eventhub_name                  = azurerm_eventhub.entra_diag.name

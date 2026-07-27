@@ -297,6 +297,69 @@ enable flag, a per-action allowlist, and a per-account allowlist), but from your
 perspective the grant above is real standing write access for the write identity. If you
 only want posture and detection, leave `enable_remediation_write = false`.
 
+## Onboarding one Azure tenant to MORE THAN ONE Rapticore tenant
+
+Sometimes the same Azure tenant needs to be read by two Rapticore tenants — a staging
+Rapticore tenant alongside production, or an internal test tenant. That is supported;
+what it takes depends on which half of the integration you mean.
+
+### Scanning (Rapticore → Azure) — one extra federated credential, no new Azure resources
+
+Every Rapticore tenant has its own AWS Cognito identity pool, so it presents a different
+token `subject`. A single user-assigned managed identity can trust up to **20** federated
+credentials, so both Rapticore tenants can federate to the **same** scanning identity:
+
+```hcl
+# terraform.tfvars — the primary credential stays exactly as-is
+federated_credential_name    = "rapticore-oidc"
+federated_credential_subject = "<subject Rapticore gave you for tenant A>"
+
+additional_federated_credentials = [
+  {
+    name    = "rapticore-oidc-staging"
+    subject = "<subject Rapticore gave you for tenant B>"
+  },
+]
+```
+
+`audience` and `issuer` are optional and default to the primary credential's values,
+which is correct for every Rapticore tenant. No new identity, role assignment or cost.
+
+Verify with the `federated_credential_subjects` output.
+
+> Existing deployments migrate cleanly: a `moved` block maps the previously-singular
+> credential onto the map key `primary`, so `tofu plan` shows **no** destroy/recreate.
+
+### Real-time threat monitoring (Azure → Rapticore) — read this before duplicating
+
+RTTM is a forwarder: Entra/Activity diagnostic logs → Event Hub → Function App → the
+Rapticore tenant's SQS queue. It is **not** free to run twice.
+
+- **If you only need to move RTTM to a different Rapticore tenant**, just change
+  `aws_sqs_queue_url` and `aws_role_arn` and re-apply. Nothing else to do — that is
+  the cheap and usually correct answer.
+- **If you genuinely need both tenants receiving events simultaneously**, set
+  `rttm_deployment_suffix` and use a **separate resource group** and a **separate
+  Terraform state key**. The suffix is required because the Function App name
+  (`<name>.azurewebsites.net`) and the Event Hub namespace name
+  (`<name>.servicebus.windows.net`) are globally unique, and the Entra diagnostic
+  setting name is unique per Azure tenant.
+
+  ```hcl
+  resource_group_name    = "rapticore-rttm-staging-rg"
+  rttm_deployment_suffix = "staging"
+  ```
+
+  Cost: this duplicates the Event Hub namespace, Function App, storage account and
+  Log Analytics workspace, and streams the *same* Entra diagnostic logs twice. Azure
+  also caps diagnostic settings at 5 per resource.
+
+### On the AWS side
+
+Nothing for you to do — Rapticore's per-tenant stack now *adopts* the shared IAM OIDC
+provider for your tenant rather than trying to create a second one, and never deletes it
+while another tenant still depends on it.
+
 ## State Management
 
 This project uses Azure Blob Storage as the backend for Terraform state. The state is stored remotely to enable:
