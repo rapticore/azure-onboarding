@@ -44,6 +44,24 @@ variable "federated_credential_issuer" {
   description = "OIDC issuer (e.g., 'https://token.actions.githubusercontent.com')"
 }
 
+variable "additional_federated_credentials" {
+  type = list(object({
+    name     = string
+    subject  = string
+    audience = optional(string)
+    issuer   = optional(string)
+  }))
+  default     = []
+  description = <<-EOT
+    Onboard this Azure tenant to MORE THAN ONE Rapticore tenant using the same
+    scanning identity — e.g. a staging Rapticore tenant alongside production.
+    Each Rapticore tenant has its own Cognito identity pool and therefore its
+    own `subject`, which Rapticore supplies. `audience`/`issuer` may be omitted
+    (they default to the primary credential's values). No extra Azure resources
+    are created; Azure allows up to 20 federated credentials per identity.
+  EOT
+}
+
 variable "assign_builtin_roles" {
   type = list(object({
     role_name = string
@@ -152,4 +170,25 @@ variable "remediation_federated_credential_audience" {
   description = "OIDC audience for the write identity. Defaults to api://AzureADTokenExchange; keep identical to the scanner's federated_credential_audience."
   type        = string
   default     = "api://AzureADTokenExchange"
+}
+variable "rttm_deployment_suffix" {
+  type        = string
+  default     = ""
+  description = <<-EOT
+    Set ONLY when this Azure tenant already forwards RTTM events to a different
+    Rapticore tenant and you are standing up a second, parallel forwarder (e.g.
+    "staging"). Suffixes the RTTM resource names so the second deployment does
+    not collide — the Function App and Event Hub namespace names are globally
+    unique and the Entra diagnostic setting is unique per Azure tenant. Use a
+    separate `resource_group_name` and a separate Terraform state key too.
+
+    Leave empty for a normal single-tenant onboarding; empty preserves the
+    existing resource names exactly.
+
+    Cost note: a second forwarder duplicates the Event Hub namespace, Function
+    App, storage account and Log Analytics workspace, and streams the SAME Entra
+    diagnostic logs twice. If you only need to point RTTM at a DIFFERENT
+    Rapticore tenant (rather than at both simultaneously), it is cheaper to
+    repoint the existing deployment's `aws_sqs_queue_url` / `aws_role_arn`.
+  EOT
 }

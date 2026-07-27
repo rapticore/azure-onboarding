@@ -74,3 +74,22 @@ variable "function_storage_account_name" {
     error_message = "function_storage_account_name must be 3-24 lowercase alphanumeric characters."
   }
 }
+# Distinguishes a SECOND (third, …) RTTM deployment inside the same Azure tenant,
+# for when one Azure tenant forwards real-time threat events to more than one
+# Rapticore tenant. Empty by default so existing deployments keep byte-identical
+# resource names and see no state churn.
+#
+# Several names here are globally unique (the Function App becomes
+# <name>.azurewebsites.net, the Event Hub namespace <name>.servicebus.windows.net)
+# and the Entra diagnostic setting is unique per Azure tenant, so a second
+# deployment WILL collide without this. Use a separate resource group as well.
+variable "deployment_suffix" {
+  type        = string
+  default     = ""
+  description = "Suffix appended to RTTM resource names to allow multiple RTTM deployments in one Azure tenant (e.g. \"staging\"). Empty = current names."
+
+  validation {
+    condition     = can(regex("^$|^[a-z0-9]([a-z0-9-]{0,18}[a-z0-9])?$", var.deployment_suffix))
+    error_message = "deployment_suffix must be empty, or 1-20 lowercase alphanumeric/hyphen characters starting and ending alphanumeric."
+  }
+}
