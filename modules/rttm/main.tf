@@ -86,11 +86,22 @@ resource "azurerm_service_plan" "function_plan" {
   }
 }
 
+locals {
+  # The Function App is re-published only when zip_deploy_file changes, i.e.
+  # when this PATH changes -- not when the archive's content does. Keying the
+  # file name on the function's own sources makes a code change reach an
+  # existing Function App on the next apply, and only then.
+  function_source_files = ["function_app.py", "processor.py", "host.json", "requirements.txt"]
+  function_source_hash = substr(sha256(join("", [
+    for name in local.function_source_files : filesha256("${path.module}/function-app/${name}")
+  ])), 0, 12)
+}
+
 # Create zip file for deployment
 data "archive_file" "function_code" {
   type        = "zip"
   source_dir  = "${path.module}/function-app"
-  output_path = "${path.module}/function-code.zip"
+  output_path = "${path.module}/function-code-${local.function_source_hash}.zip"
 }
 
 resource "azurerm_linux_function_app" "entra_processor" {

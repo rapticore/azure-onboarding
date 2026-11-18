@@ -46,7 +46,9 @@ def create_sso_session(profile_name: str = None, region: str = None) -> boto3.Se
             logger.info("Fetching OIDC token from Azure MSI...")
             logger.info(f"Calling MSI endpoint: {identity_endpoint}, params={params}")
             resp = requests.get(identity_endpoint, params=params, headers=headers)
-            logger.info(f"MSI response: {resp.status_code} {resp.text}")
+            # Never log the response body: it holds the managed identity's access token, which anyone who can read
+            # this Function's logs could use to assume the forwarding role until it expires.
+            logger.info(f"MSI response status: {resp.status_code}")
             resp.raise_for_status()
 
             token = resp.json().get("access_token")
@@ -73,7 +75,9 @@ def create_sso_session(profile_name: str = None, region: str = None) -> boto3.Se
             with open(token_file, "r") as f:
                 web_identity_token = f.read()
 
-            logger.info(jwt.decode(web_identity_token, options={"verify_signature": False}))
+            # The token's audience and subject only, to diagnose a trust mismatch; never the token or all its claims.
+            claims = jwt.decode(web_identity_token, options={"verify_signature": False})
+            logger.info(f"OIDC token audience={claims.get('aud')} subject={claims.get('sub')}")
 
             try:
                 sts_client = boto3.client("sts", region_name=region)
@@ -131,11 +135,14 @@ def create_sso_session(profile_name: str = None, region: str = None) -> boto3.Se
 def handle_signin_log(event_str: str):
 
     try:
-        session = create_sso_session(region=os.getenv("AWS_REGION", "us-west-2"))
+        # The queue's Region, from AWS_REGION (the module sets it from var.aws_region). It was hard-coded to
+        # us-west-2 below, so a queue in another Region could not be reached whatever the variable said.
+        region = os.getenv("AWS_REGION", "us-west-2")
+        session = create_sso_session(region=region)
 
         # # Configure boto3 client with retries and timeouts
         config = Config(
-            region_name='us-west-2',
+            region_name=region,
             retries={'max_attempts': 3, 'mode': 'adaptive'},
             max_pool_connections=50
         )
@@ -147,7 +154,9 @@ def handle_signin_log(event_str: str):
         event_data = json.loads(event_str)
 
         # Optionally validate, enrich, or log
-        logger.info(f"Forwarding event: {event_data}")
+        # Not the event itself: sign-in and audit records are the customer's personal data and do not belong in
+        # Function logs.
+        logger.info("Forwarding event batch")
 
         # Send to SQS
         QUEUE_URL = os.getenv("AWS_SQS_QUEUE_URL")  # required
