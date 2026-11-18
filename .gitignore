@@ -30,3 +30,7 @@ crash.log
 # Ignore OS generated files
 .DS_Store
 Thumbs.db
+
+# Ignore Python bytecode (function app tests)
+__pycache__/
+*.pyc
