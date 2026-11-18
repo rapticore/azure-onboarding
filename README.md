@@ -103,7 +103,9 @@ tofu apply
 ### RTTM Module
 
 The Real-Time Threat Monitoring module streams your Azure Activity Log and your Entra ID
-directory + sign-in logs to Rapticore in near real time.
+directory + sign-in logs to Rapticore in near real time. Three further sources —
+Application Gateway / Front Door **WAF logs** and **Defender for Cloud alerts** — are
+optional and off by default; see [Optional sources](#optional-sources-each-off-by-default).
 
 **Location:** `modules/rttm/`
 
@@ -124,8 +126,9 @@ requirement — works on any subscription):
 | `Policy` | Azure Policy audit/deny effect operations |
 | `Alert` | Activations of Azure alert rules |
 
-Tenant **Entra ID** (`azurerm_monitor_aad_diagnostic_setting`; the setting as a whole
-requires at least one Entra ID **P1** license because of the sign-in categories):
+Tenant **Entra ID** (`azurerm_monitor_aad_diagnostic_setting`; with the default category
+list the setting requires at least one Entra ID **P1** license because of the sign-in
+categories):
 
 | Category | What it captures |
 | --- | --- |
@@ -134,6 +137,25 @@ requires at least one Entra ID **P1** license because of the sign-in categories)
 
 `AuditLogs` on its own has no premium-license requirement, but it rides on the same Entra
 diagnostic setting as the sign-in categories, which collectively require P1.
+
+These seven categories are the default of the `entra_log_categories` variable. Leave it
+unset and nothing changes. Set it to export fewer:
+
+| Variable | Default | Effect |
+| --- | --- | --- |
+| `entra_log_categories` | the seven categories above | The Entra categories on the diagnostic setting. `["AuditLogs"]` works on a tenant with no P1/P2 license. `[]` creates no Entra diagnostic setting at all (the Activity Log half still works). |
+
+What each category lets Rapticore detect, and what it costs you in volume:
+
+| Category | Detects | Volume |
+| --- | --- | --- |
+| `AuditLogs` | Changes to who can do what: new app secrets, consent grants, role and policy changes | Low |
+| `SignInLogs` | Unusual or risky interactive sign-ins by your users | One event per interactive sign-in |
+| `NonInteractiveUserSignInLogs` | Stolen-token and session reuse that never shows a sign-in screen | Microsoft: together with service principal sign-ins, "5 to 10 times larger than the interactive user sign-ins" |
+| `ServicePrincipalSignInLogs` | An application or service principal signing in from somewhere new | See above |
+| `ManagedIdentitySignInLogs` | A managed identity used from an unexpected resource | Grows with the number of workloads |
+| `ADFSSignInLogs` | Sign-ins through AD FS (only if you use AD FS) | Usually none |
+| `MicrosoftServicePrincipalSignInLogs` | Microsoft's own services signing in inside your tenant | High. Microsoft calls these "not necessary for most customers"; it is the first category to drop if Event Hub volume matters |
 
 #### Entra ID Protection risk logs (optional — needs Entra ID P2)
 
@@ -149,6 +171,103 @@ behind an opt-in variable so a non-P2 tenant's `apply` still succeeds:
 get a token, exchanges it for temporary AWS credentials via
 `AssumeRoleWithWebIdentity`, and calls SQS `SendMessage`. No AWS access keys are stored.
 
+#### Optional sources (each off by default)
+
+Nothing in this section is created unless you set its variable, and each one is
+independent of the others. All of them add events to the same Event Hub and the same
+Function App.
+
+| Variable | Default | What it exports | What it lets Rapticore detect |
+| --- | --- | --- | --- |
+| `waf_application_gateway_ids` | `[]` | `ApplicationGatewayFirewallLog` of each named Application Gateway (one `azurerm_monitor_diagnostic_setting` per gateway) | Attacks your web application firewall matched or blocked, with the attacker's IP address |
+| `waf_front_door_profile_ids` | `[]` | The WAF log of each named Front Door: `FrontDoorWebApplicationFirewallLog` for Standard/Premium (`Microsoft.Cdn/profiles`), `FrontdoorWebApplicationFirewallLog` for classic (`Microsoft.Network/frontDoors`). The category is chosen from the resource id | The same, at the edge |
+| `enable_defender_alert_export` | `false` | A Defender for Cloud continuous export (`azurerm_security_center_automation`) of every security alert of this subscription, with its own Send-only Event Hub key | Defender for Cloud alerts as they are raised, correlated with the other events |
+| `aws_cloud_event_sqs_queue_url` | `""` | Nothing by itself. It is the second Rapticore queue, the only one that reads WAF and Defender records | — |
+| `cloud_event_kinds` | `azure.waf,azure.defender` | Which record kinds go to the second queue. Change only when Rapticore asks | — |
+
+```hcl
+aws_cloud_event_sqs_queue_url = "<provided by Rapticore>"
+
+waf_application_gateway_ids = [
+  "/subscriptions/<sub>/resourceGroups/<rg>/providers/Microsoft.Network/applicationGateways/<name>",
+]
+waf_front_door_profile_ids = [
+  "/subscriptions/<sub>/resourceGroups/<rg>/providers/Microsoft.Cdn/profiles/<name>",
+]
+enable_defender_alert_export = true
+```
+
+Things to know before turning one on:
+
+- **The second queue comes first.** WAF and Defender records are read only from
+  `aws_cloud_event_sqs_queue_url`. Without it the Function App counts those records, logs
+  the number, and does not forward them — you would pay for the Event Hub events and get
+  nothing. `tofu plan` prints a warning in that case. Rapticore supplies the URL and
+  allows the role in `aws_role_arn` to send to it.
+- **Only the firewall log is exported**, never the access log, which is far larger.
+- **Application Gateways must be in the same region as this deployment.** Azure streams a
+  regional resource only to an Event Hub in its own region. Front Door is global and has
+  no such limit. The gateway or profile must be in the subscription you deploy to.
+- **Five diagnostic settings per resource** is an Azure limit; this adds one to each named
+  gateway or profile.
+- **Defender alerts exist only for the Defender plans you have turned on.** The export is
+  named `rapticore-defender-alert-export`, not `ExportToEventHub`, so it does not replace
+  an export you configured on the portal's *Continuous export* page — and for the same
+  reason it is not shown on that page. It is listed in the resource group as a Security
+  automation. The Activity Log `Security` category above already carries a short record
+  of each alert; the continuous export carries the full alert.
+
+**How records are routed.** The Function App gives every record a kind from its own
+`category` — `azure.signin`, `azure.audit`, `azure.activity`, `azure.keyvault`,
+`azure.waf`, `azure.defender` — and sends it to the queue that reads that kind:
+
+- Activity Log, sign-in, audit and every other record: to `aws_sqs_queue_url`, in the
+  `{ "records": [...] }` envelope exactly as Azure emitted it. A batch too large for one
+  SQS message is split into several envelopes.
+- WAF and Defender records: to `aws_cloud_event_sqs_queue_url`, one per message, as
+  `{ "provider": "azure", "rawKind": "<kind>", "providerAccountId": "<your tenant id>", "raw": <record> }`.
+  The record itself is not changed. The tenant id is added because these records do not
+  carry it.
+
+With `aws_cloud_event_sqs_queue_url` empty, nothing this module exports is treated
+differently from before.
+
+#### Cost (billed to your Azure subscription)
+
+This module buys no license and Rapticore charges nothing for the queues. What you pay
+Azure for:
+
+| Item | How Azure bills it | What this module deploys |
+| --- | --- | --- |
+| Event Hubs namespace | Per **throughput unit** per hour, plus per million ingress events. One throughput unit accepts up to 1 MB or 1,000 events per second; above that Azure throttles the senders | Standard tier, 1 throughput unit, fixed (no auto-inflate) |
+| Function App (Consumption plan) | Per execution and per GB-second, after a monthly free grant of 1 million executions and 400,000 GB-seconds | One execution per Event Hub event (an event is a batch of records) |
+| Application Insights / Log Analytics | Per GB ingested | The Function App logs one line per batch (record kinds and counts, never the events), so this stays small |
+| Storage account | Function host files and Event Hub checkpoints | Small |
+| Data transfer out | Per GB after the free monthly allowance | Everything forwarded to Rapticore |
+| Azure Monitor platform-log export | Per GB of resource logs a diagnostic setting sends to an Event Hub. Azure exports "a select set" of platform logs at no charge; check whether the WAF categories are in that set for you | Only the optional WAF diagnostic settings add resource logs |
+
+Current prices are on the
+[Event Hubs](https://azure.microsoft.com/pricing/details/event-hubs/),
+[Functions](https://azure.microsoft.com/pricing/details/functions/) and
+[Azure Monitor](https://azure.microsoft.com/pricing/details/monitor/) pricing pages for
+your region and agreement.
+
+What changes the bill:
+
+- **Activity Log and `AuditLogs`** — a few thousand events a day in most tenants. One
+  throughput unit and the free Function grant cover it.
+- **Sign-in categories** — see the volume column above. In a large tenant the
+  non-interactive and service principal categories are what take you past the free
+  Function grant.
+- **WAF logs** — one record per request the firewall matched. A site under attack can
+  produce millions an hour. This is the source most likely to exceed one throughput unit;
+  watch the namespace's *Throttled requests* metric and, if it is not zero, raise the
+  namespace capacity (each extra unit costs the same again). It is also the source that
+  adds the most Log Analytics ingestion.
+- **Defender alerts** — a handful a day; no measurable cost.
+- **License** — sign-in categories need Entra ID P1 or P2 (below). WAF needs a WAF-enabled
+  gateway or a WAF policy on the Front Door. Defender alerts need the Defender plans.
+
 #### Permissions and consent the customer must grant
 
 These are checked at `tofu apply` time. The subscription-Owner role that covers the rest
@@ -161,6 +280,8 @@ of onboarding is **not** sufficient for the last two rows.
 | Event Hub authorization rule | `ListKeys` (implied by the roles above) | Azure Monitor reads the rule's key to stream. The rule is created with `listen`, `send` and `manage` because Azure requires all three for Event Hub streaming — do not narrow them |
 | **Entra ID tenant** | **`Security Administrator`** | The Entra diagnostic setting that exports directory **audit** and sign-in logs (`azurerm_monitor_aad_diagnostic_setting`). This is a directory role, not an Azure RBAC role |
 | **Entra ID tenant** | **`Global Administrator`** or **`Privileged Role Administrator`** | Only if you also apply the managed-identity module's Microsoft Graph app-role block — assigning a Graph app role *is* the admin consent |
+| Each named Application Gateway / Front Door | `Monitoring Contributor` (or `Owner` / `Contributor`) on the resource or its resource group | Only with `waf_application_gateway_ids` / `waf_front_door_profile_ids`: the WAF diagnostic setting on that resource |
+| Subscription and resource group | `Security Admin` or `Owner` | Only with `enable_defender_alert_export`: the continuous export (`Microsoft.Security/automations`). Creating its Send-only Event Hub key is covered by `Contributor` on the resource group |
 
 #### Licensing prerequisite (Entra sign-in logs only)
 
@@ -171,8 +292,10 @@ user.
 
 The **Activity Log** half of this module has no such requirement and works on any
 subscription. If your tenant is Free tier, expect
-`azurerm_monitor_aad_diagnostic_setting` to fail while everything else succeeds; remove
-that resource (or acquire one P1 license) and Activity-Log monitoring still works.
+`azurerm_monitor_aad_diagnostic_setting` to fail while everything else succeeds. Set
+`entra_log_categories = ["AuditLogs"]` to export only the directory audit log, or
+`entra_log_categories = []` to create no Entra diagnostic setting (or acquire one P1
+license); Activity-Log monitoring works either way.
 
 #### Inputs Rapticore provides
 
@@ -184,6 +307,11 @@ CloudFormation stack outputs:
 - `aws_role_arn` — `arn:aws:iam::<rapticore-account>:role/AzureWebIdentityRoleForAzureRTTM-<tenant>`
 - `aws_oidc_audience` — `api://<your-azure-tenant-id>`
 - `aws_region` — normally `us-west-2`
+
+Optional, only for WAF logs and Defender alerts:
+
+- `aws_cloud_event_sqs_queue_url` — the second queue. Rapticore provides it when WAF or
+  Defender monitoring is enabled for your tenant.
 
 #### Expected delay before the first event
 
@@ -208,6 +336,29 @@ If you must keep an existing storage account instead, pin it:
 
 ```hcl
 function_storage_account_name = "your-existing-account-name"
+```
+
+#### Upgrading to the revision with optional sources
+
+If you set none of the new variables, `tofu plan` creates **no new resource** and changes
+no diagnostic setting:
+
+- The Entra diagnostic setting keeps its categories (the default of
+  `entra_log_categories` is the list that used to be fixed) and is not recreated; a
+  `moved` block carries it to its new address.
+- No WAF diagnostic setting, Defender export or extra Event Hub key is created, and the
+  Function App gets no new app setting.
+- The Function App code is updated. The plan shows the code blob replaced and
+  `zip_deploy_file` changed in place on the Function App — the package file name now
+  follows the function's source, so a code change is actually published on upgrade.
+  Repeat the `pip install` of Step 4 before applying, as for a first deployment. The new
+  code forwards the Activity Log and Entra records exactly as before, and additionally
+  splits a batch that is too large for one SQS message instead of failing on it.
+
+To check the Function App code without deploying anything:
+
+```bash
+python3 -m unittest discover -s modules/rttm/tests -v
 ```
 
 ### Managed Identity Module
@@ -411,7 +562,8 @@ tofu destroy -var-file="terraform.tfvars"
 ```
 
 This removes the RTTM resources (Event Hub namespace and hub, Function App, its
-storage account, Application Insights and Log Analytics), both diagnostic settings,
+storage account, Application Insights and Log Analytics), both diagnostic settings, any
+WAF diagnostic settings and Defender export you had enabled,
 the scanning managed identity with its custom role and role assignment, and — only if
 you had enabled it — the remediation write identity, its custom role and its role
 assignment. Once the remediation write identity is destroyed, Rapticore holds no write

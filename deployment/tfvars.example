@@ -75,6 +75,39 @@ aws_region          = "us-west-2"
 # enable_entra_id_protection_logs = false
 
 # ----------------------------------------------------------------------------------
+# OPTIONAL: narrow the Entra log categories RTTM exports.
+# Default (omit) = the seven categories below, as before. Sign-in categories need
+# Entra ID P1 or P2; AuditLogs does not, so ["AuditLogs"] works on any tenant.
+# [] creates no Entra diagnostic setting at all.
+# ----------------------------------------------------------------------------------
+# entra_log_categories = [
+#   "AuditLogs",
+#   "SignInLogs",
+#   "NonInteractiveUserSignInLogs",
+#   "ServicePrincipalSignInLogs",
+#   "ManagedIdentitySignInLogs",
+#   "ADFSSignInLogs",
+#   "MicrosoftServicePrincipalSignInLogs",
+# ]
+
+# ----------------------------------------------------------------------------------
+# OPTIONAL: WAF logs and Defender for Cloud alerts  (ALL DEFAULT OFF)
+# Each line is independent. All three need the second Rapticore queue
+# (aws_cloud_event_sqs_queue_url, provided by Rapticore): without it the records
+# reach your Event Hub -- and are billed there -- but are not forwarded.
+# WAF logs are one event per request the firewall matched; see the README for cost.
+# ----------------------------------------------------------------------------------
+# aws_cloud_event_sqs_queue_url = "https://sqs.us-west-2.amazonaws.com/123456789012/my-cloud-event-queue"
+# waf_application_gateway_ids = [
+#   "/subscriptions/00000000-0000-0000-0000-000000000000/resourceGroups/my-rg/providers/Microsoft.Network/applicationGateways/my-gateway",
+# ]
+# waf_front_door_profile_ids = [
+#   "/subscriptions/00000000-0000-0000-0000-000000000000/resourceGroups/my-rg/providers/Microsoft.Cdn/profiles/my-front-door",          # Standard/Premium
+#   "/subscriptions/00000000-0000-0000-0000-000000000000/resourceGroups/my-rg/providers/Microsoft.Network/frontDoors/my-classic-fd",  # classic
+# ]
+# enable_defender_alert_export = false
+
+# ----------------------------------------------------------------------------------
 # OPTIONAL: Remediation WRITE identity  (DEFAULT OFF -- read-only unless enabled)
 # Provisions a SEPARATE managed identity that Rapticore uses ONLY for automated
 # remediation writes. Leave enable_remediation_write = false for read-only posture.

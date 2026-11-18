@@ -114,6 +114,74 @@ variable "enable_entra_id_protection_logs" {
   default     = false
 }
 
+# --- RTTM: optional sources (each independent; defaults change nothing) -------------
+variable "entra_log_categories" {
+  description = <<-EOT
+    Entra log categories exported by the tenant diagnostic setting. The default is
+    the seven categories RTTM has always exported. Narrow it to reduce volume, or
+    set ["AuditLogs"] on a tenant without Entra ID P1/P2 (sign-in categories need
+    P1 or P2; AuditLogs does not). An empty list creates no Entra diagnostic
+    setting. RiskyUsers / UserRiskEvents are switched by
+    enable_entra_id_protection_logs instead.
+  EOT
+  type        = list(string)
+  default = [
+    "AuditLogs",
+    "SignInLogs",
+    "NonInteractiveUserSignInLogs",
+    "ServicePrincipalSignInLogs",
+    "ManagedIdentitySignInLogs",
+    "ADFSSignInLogs",
+    "MicrosoftServicePrincipalSignInLogs",
+  ]
+}
+
+variable "waf_application_gateway_ids" {
+  description = <<-EOT
+    Opt-in (default empty). Resource ids of Application Gateways (with WAF) whose
+    firewall log is exported to RTTM. Same subscription and same region as this
+    deployment. Needs aws_cloud_event_sqs_queue_url.
+  EOT
+  type        = list(string)
+  default     = []
+}
+
+variable "waf_front_door_profile_ids" {
+  description = <<-EOT
+    Opt-in (default empty). Resource ids of Front Door profiles whose WAF log is
+    exported to RTTM: Standard/Premium (Microsoft.Cdn/profiles) or classic
+    (Microsoft.Network/frontDoors). Same subscription as this deployment. Needs
+    aws_cloud_event_sqs_queue_url.
+  EOT
+  type        = list(string)
+  default     = []
+}
+
+variable "enable_defender_alert_export" {
+  description = <<-EOT
+    Opt-in (default false). Continuous export of this subscription's Defender for
+    Cloud security alerts to RTTM. Needs aws_cloud_event_sqs_queue_url.
+  EOT
+  type        = bool
+  default     = false
+}
+
+variable "aws_cloud_event_sqs_queue_url" {
+  description = <<-EOT
+    Optional (default empty). The second Rapticore SQS queue, which reads WAF and
+    Defender records. Rapticore provides it. Without it those records are counted
+    by the Function App and not forwarded.
+  EOT
+  type        = string
+  default     = ""
+}
+
+variable "cloud_event_kinds" {
+  description = "Record kinds sent to aws_cloud_event_sqs_queue_url. Change only when Rapticore asks you to."
+  type        = string
+  default     = "azure.waf,azure.defender"
+}
+
 # --- Remediation WRITE identity (opt-in, default off) -------------------------------
 variable "enable_remediation_write" {
   description = <<-EOT

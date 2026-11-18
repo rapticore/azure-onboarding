@@ -8,6 +8,8 @@ from botocore.exceptions import ClientError, NoCredentialsError, ProfileNotFound
 from botocore.config import Config
 from pathlib import Path
 
+from routing import route_message
+
 logger = logging.getLogger(__name__)
 
 def create_sso_session(profile_name: str = None, region: str = None) -> boto3.Session:
@@ -135,8 +137,33 @@ def create_sso_session(profile_name: str = None, region: str = None) -> boto3.Se
 def handle_signin_log(event_str: str):
 
     try:
+        event_data = json.loads(event_str)
+
+        # Decide, per record, which Rapticore queue reads it (see routing.py).
+        # With AWS_CLOUD_EVENT_SQS_QUEUE_URL unset (the default) every record
+        # this module exports goes to AWS_SQS_QUEUE_URL in the unchanged envelope.
+        QUEUE_URL = os.getenv("AWS_SQS_QUEUE_URL")  # required
+        CLOUD_EVENT_QUEUE_URL = os.getenv("AWS_CLOUD_EVENT_SQS_QUEUE_URL")  # optional
+        routed = route_message(
+            event_data,
+            cloud_event_queue_url=CLOUD_EVENT_QUEUE_URL,
+            kinds=os.getenv("CLOUD_EVENT_KINDS"),
+            tenant_id=os.getenv("AZURE_TENANT_ID"),
+        )
+        logger.info(f"Record kinds in event: {dict(routed.kinds)}")
+
+        if routed.unread:
+            # WAF / Defender records are read only from the cloud-event queue.
+            logger.warning(
+                f"{sum(routed.unread.values())} record(s) not forwarded "
+                f"({dict(routed.unread)}): AWS_CLOUD_EVENT_SQS_QUEUE_URL is not set"
+            )
+
+        if not routed.record_bodies and not routed.cloud_event_bodies:
+            return
+
         # The queue's Region, from AWS_REGION (the module sets it from var.aws_region). It was hard-coded to
-        # us-west-2 below, so a queue in another Region could not be reached whatever the variable said.
+        # us-west-2 here, so a queue in another Region could not be reached whatever the variable said.
         region = os.getenv("AWS_REGION", "us-west-2")
         session = create_sso_session(region=region)
 
@@ -150,21 +177,25 @@ def handle_signin_log(event_str: str):
         # Create SQS client from session
         sqs_client = session.client('sqs', config=config)
 
-
-        event_data = json.loads(event_str)
-
         # Optionally validate, enrich, or log
         # Not the event itself: sign-in and audit records are the customer's personal data and do not belong in
-        # Function logs.
+        # Function logs. The record kinds and counts are logged above.
         logger.info("Forwarding event batch")
 
         # Send to SQS
-        QUEUE_URL = os.getenv("AWS_SQS_QUEUE_URL")  # required
-        response = sqs_client.send_message(
-            QueueUrl=QUEUE_URL,
-            MessageBody=json.dumps(event_data)
-        )
-        logger.info(f"SQS MessageId: {response.get("MessageId")}")
+        for body in routed.record_bodies:
+            response = sqs_client.send_message(
+                QueueUrl=QUEUE_URL,
+                MessageBody=body
+            )
+            logger.info(f"SQS MessageId: {response.get("MessageId")}")
+
+        for body in routed.cloud_event_bodies:
+            response = sqs_client.send_message(
+                QueueUrl=CLOUD_EVENT_QUEUE_URL,
+                MessageBody=body
+            )
+            logger.info(f"SQS cloud-event MessageId: {response.get("MessageId")}")
 
     except Exception as e:
         logger.exception(f"Error processing event: {str(e)}")

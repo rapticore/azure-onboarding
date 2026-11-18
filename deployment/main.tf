@@ -51,6 +51,15 @@ module "eventhub" {
 
   enable_entra_id_protection_logs = var.enable_entra_id_protection_logs
 
+  # Optional RTTM sources. Each is independent and changes nothing when left at
+  # its default (see variables.tf and the README "Optional sources").
+  entra_log_categories          = var.entra_log_categories
+  waf_application_gateway_ids   = var.waf_application_gateway_ids
+  waf_front_door_profile_ids    = var.waf_front_door_profile_ids
+  enable_defender_alert_export  = var.enable_defender_alert_export
+  aws_cloud_event_sqs_queue_url = var.aws_cloud_event_sqs_queue_url
+  cloud_event_kinds             = var.cloud_event_kinds
+
   # Set when this Azure tenant already has an RTTM deployment forwarding to a
   # different Rapticore tenant (see variables.tf).
   deployment_suffix = var.rttm_deployment_suffix
